@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <link rel="icon" type="image/x-icon" href="favicon.png">
+    <title>codeRUN!</title>
+</head>
+<html>
+<style>
+    .btn {
+        background-color: #4CAF50;
+        border: none;
+        color: white;
+        padding: 10px 24px;
+        text-align: center;
+        text-decoration: none;
+        display: inline-block;
+        font-size: 16px;
+        margin: 4px 2px;
+        cursor: pointer;
+    }
+</style>
+<body>
+<textarea id="code" rows="12" cols="80">#include &lt;iostream&gt;
+#include &lt;string&gt;
+using namespace std;
+
+int main() {
+    string str;
+    cout &lt;&lt; "string input: ";
+    cin &gt;&gt; str;
+    cout &lt;&lt; str;
+    return 0;
+}
+</textarea>
+<br>
+<button onclick="run()" class="btn">RUN</button>
+<script>
+async function run() {
+    try {
+        const r = await fetch("/run", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ code: document.getElementById("code").value })
+        });
+        const j = await r.json();
+    } catch (err) {
+        alert("Error: " + err);
+    }
+}
+</script>
+</body>
+</html>
