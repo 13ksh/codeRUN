@@ -1,52 +1,524 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
+    <meta charset="utf-8" />
     <link rel="icon" type="image/x-icon" href="favicon.png">
     <title>codeRUN!</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: "Segoe UI", sans-serif;
+            background: #1e1e1e;
+            color: #d4d4d4;
+        }
+        .layout {
+            display: grid;
+            grid-template-columns: 260px 1fr;
+            height: 100vh;
+        }
+        .sidebar {
+            border-right: 1px solid #333;
+            background: #252526;
+            display: flex;
+            flex-direction: column;
+        }
+        .sidebar-header {
+            padding: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #333;
+        }
+        .file-tree {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            overflow-y: auto;
+            flex: 1;
+        }
+        .file-tree li {
+            padding: 6px 12px;
+            cursor: pointer;
+        }
+        .file-tree li:hover,
+        .file-tree li.active {
+            background: #094771;
+        }
+        .editor {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+        .editor-header {
+            border-bottom: 1px solid #333;
+            padding: 10px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        #editor {
+            flex: 1;
+            width: 100%;
+            position: relative;
+        }
+        .actions button {
+            background: #0e639c;
+            border: none;
+            color: white;
+            padding: 6px 12px;
+            margin-left: 8px;
+            cursor: pointer;
+        }
+        .actions button:disabled {
+            opacity: 0.4;
+            cursor: default;
+        }
+        .empty-state {
+            padding: 16px;
+            color: #888;
+        }
+        .modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.6);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+        }
+        .modal.open {
+            display: flex;
+        }
+        .modal-content {
+            background: #252526;
+            padding: 20px 24px;
+            border: 1px solid #3c3c3c;
+            min-width: 320px;
+            text-align: center;
+        }
+        .modal-actions {
+            margin-top: 16px;
+            display: flex;
+            justify-content: space-evenly;
+        }
+        .modal-actions button {
+            background: #0e639c;
+            border: none;
+            color: white;
+            padding: 6px 24px;
+            cursor: pointer;
+            text-transform: lowercase;
+        }
+        .create-input {
+            margin-top: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: #1e1e1e;
+            border: 1px solid #3c3c3c;
+            padding: 6px 10px;
+        }
+        .create-input input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: #d4d4d4;
+            font-size: 14px;
+            outline: none;
+        }
+        .create-input span {
+            color: #888;
+            font-size: 14px;
+        }
+        .create-error {
+            min-height: 18px;
+            margin-top: 8px;
+            color: #f48771;
+            font-size: 13px;
+        }
+        .cantsee {
+            position: absolute;
+            left: -9999px;
+        }
+    </style>
 </head>
-<html>
-<style>
-    .btn {
-        background-color: #4CAF50;
-        border: none;
-        color: white;
-        padding: 10px 24px;
-        text-align: center;
-        text-decoration: none;
-        display: inline-block;
-        font-size: 16px;
-        margin: 4px 2px;
-        cursor: pointer;
-    }
-</style>
 <body>
-<textarea id="code" rows="12" cols="80">#include &lt;iostream&gt;
-#include &lt;string&gt;
-using namespace std;
+<div class="layout">
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <span>workapace</span>
+            <button onclick="openCreateModal()">+</button>
+        </div>
+        <ul id="fileList" class="file-tree"></ul>
+        <div class="empty-state" id="emptyState">파일을 만들어주세요.</div>
+    </aside>
+    <section class="editor">
+        <div class="editor-header">
+            <span id="activeFile">선택된 파일 없음</span>
+            <div class="actions">
+                <button id="saveBtn" onclick="manualSave()" class="cantsee"></button>
+                <button id="runBtn" onclick="run()">RUN</button>
+            </div>
+        </div>
+        <div id="editor"></div>
+    </section>
+</div>
+
+<div id="deleteModal" class="modal" role="dialog" aria-modal="true">
+    <div class="modal-content">
+        <p id="deleteText"></p>
+        <div class="modal-actions">
+            <button id="deleteNo" type="button">no</button>
+            <button id="deleteYes" type="button">yes</button>
+        </div>
+    </div>
+</div>
+
+<div id="createModal" class="modal" role="dialog" aria-modal="true">
+    <div class="modal-content">
+        <p>새 .cpp 파일 이름을 입력하세요.</p>
+        <div class="create-input">
+            <input id="createNameInput" type="text" placeholder="파일 이름" aria-label="파일 이름" />
+            <span>.cpp</span>
+        </div>
+        <div id="createError" class="create-error"></div>
+        <div class="modal-actions">
+            <button id="createCancel" type="button">cancel</button>
+            <button id="createConfirm" type="button">create</button>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
+<script>
+const editorContainer = document.getElementById("editor");
+const fileListEl = document.getElementById("fileList");
+const emptyStateEl = document.getElementById("emptyState");
+const activeFileEl = document.getElementById("activeFile");
+const saveBtn = document.getElementById("saveBtn");
+const runBtn = document.getElementById("runBtn");
+const deleteModal = document.getElementById("deleteModal");
+const deleteText = document.getElementById("deleteText");
+const deleteNoBtn = document.getElementById("deleteNo");
+const deleteYesBtn = document.getElementById("deleteYes");
+const createModal = document.getElementById("createModal");
+const createNameInput = document.getElementById("createNameInput");
+const createErrorEl = document.getElementById("createError");
+const createCancelBtn = document.getElementById("createCancel");
+const createConfirmBtn = document.getElementById("createConfirm");
+
+const template = `#include <iostream>
 
 int main() {
-    string str;
-    cout &lt;&lt; "string input: ";
-    cin &gt;&gt; str;
-    cout &lt;&lt; str;
+    std::cout << "Hello" << std::endl;
     return 0;
 }
-</textarea>
-<br>
-<button onclick="run()" class="btn">RUN</button>
-<script>
-async function run() {
+`;
+
+let editor;
+let editorReadyResolve;
+const editorReady = new Promise((resolve) => {
+    editorReadyResolve = resolve;
+});
+
+let files = [];
+let currentFile = "";
+let isDirty = false;
+let suppressInput = false;
+let pendingDelete = "";
+
+document.addEventListener("keydown", (evt) => {
+    if (
+        evt.key === "Delete" &&
+        !deleteModal.classList.contains("open") &&
+        !createModal.classList.contains("open")
+    ) {
+        evt.preventDefault();
+        openDeleteModal();
+        return;
+    }
+    if (evt.key === "Escape") {
+        if (createModal.classList.contains("open")) {
+            evt.preventDefault();
+            closeCreateModal();
+            return;
+        }
+        if (deleteModal.classList.contains("open")) {
+            evt.preventDefault();
+            closeDeleteModal();
+        }
+    }
+});
+
+deleteNoBtn.addEventListener("click", closeDeleteModal);
+deleteYesBtn.addEventListener("click", () => {
+    confirmDelete().catch((err) => alert(err.message));
+});
+createCancelBtn.addEventListener("click", closeCreateModal);
+createConfirmBtn.addEventListener("click", () => {
+    confirmCreate().catch((err) => alert(err.message));
+});
+createNameInput.addEventListener("keydown", (evt) => {
+    if (evt.key === "Enter") {
+        evt.preventDefault();
+        confirmCreate().catch((err) => alert(err.message));
+    }
+});
+
+require.config({ paths: { vs: "https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs" } });
+require(["vs/editor/editor.main"], () => {
+    editor = monaco.editor.create(editorContainer, {
+        value: "",
+        language: "cpp",
+        theme: "vs-dark",
+        automaticLayout: true,
+        minimap: { enabled: false },
+        fontSize: 14,
+    });
+
+    editor.onDidChangeModelContent(() => {
+        if (!currentFile || suppressInput) {
+            return;
+        }
+        isDirty = true;
+        saveFile({ silent: true, force: true }).catch((err) => console.error(err));
+    });
+
+    editorReadyResolve();
+    refreshFiles();
+});
+
+async function fetchJSON(url, options) {
+    const res = await fetch(url, options);
+    const contentType = res.headers.get("content-type") || "";
+    const isJson = contentType.includes("application/json");
+    const data = isJson ? await res.json() : await res.text();
+    if (!res.ok) {
+        const message = isJson && data && data.message
+            ? data.message
+            : (typeof data === "string" && data.trim()) ? data.trim() : res.statusText;
+        throw new Error(message);
+    }
+    return data;
+}
+
+async function setCode(value) {
+    await editorReady;
+    suppressInput = true;
+    editor.setValue(value);
+    suppressInput = false;
+}
+
+async function getCode() {
+    await editorReady;
+    return editor.getValue();
+}
+
+function openCreateModal() {
+    createNameInput.value = "";
+    createErrorEl.textContent = "";
+    createModal.classList.add("open");
+    setTimeout(() => createNameInput.focus(), 0);
+}
+
+function closeCreateModal() {
+    createModal.classList.remove("open");
+    createNameInput.value = "";
+    createErrorEl.textContent = "";
+}
+
+async function confirmCreate() {
+    const base = createNameInput.value.trim();
+    if (!base) {
+        createErrorEl.textContent = "파일 이름을 입력하세요.";
+        return;
+    }
+    if (base.includes(".")) {
+        createErrorEl.textContent = ".cpp 확장자를 제외한 이름만 입력하세요.";
+        return;
+    }
+    const name = `${base}.cpp`;
+    if (files.includes(name)) {
+        createErrorEl.textContent = "이미 존재하는 파일 이름입니다.";
+        return;
+    }
+    createErrorEl.textContent = "";
     try {
-        const r = await fetch("/run", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ code: document.getElementById("code").value })
-        });
-        const j = await r.json();
+        await createFileOnServer(name);
+        closeCreateModal();
     } catch (err) {
-        alert("Error: " + err);
+        closeCreateModal();
+        throw err;
     }
 }
+
+function renderFileList() {
+    fileListEl.innerHTML = files
+        .map((name) => `<li data-file="${name}" class="${name === currentFile ? "active" : ""}">${name}</li>`)
+        .join("");
+    fileListEl.style.display = files.length ? "block" : "none";
+    emptyStateEl.style.display = files.length ? "none" : "block";
+}
+
+fileListEl.addEventListener("click", (e) => {
+    const li = e.target.closest("li[data-file]");
+    if (li) {
+        openFile(li.dataset.file);
+    }
+});
+
+async function openFile(name) {
+    if (name === currentFile) {
+        return;
+    }
+    try {
+        await saveFile({ silent: true });
+    } catch (err) {
+        alert(err.message);
+        return;
+    }
+    await loadFile(name);
+}
+
+async function refreshFiles(selectName) {
+    try {
+        await editorReady;
+        const { files: list } = await fetchJSON("/files");
+        files = list;
+        renderFileList();
+        if (!files.length) {
+            currentFile = "";
+            activeFileEl.textContent = "선택된 파일 없음";
+            await setCode("");
+            isDirty = false;
+            saveBtn.disabled = true;
+            runBtn.disabled = true;
+            return;
+        }
+        const target = selectName && files.includes(selectName) ? selectName : files[0];
+        await loadFile(target);
+    } catch (err) {
+        alert(err.message);
+    }
+}
+
+async function loadFile(name) {
+    try {
+        const data = await fetchJSON(`/file?name=${encodeURIComponent(name)}`);
+        currentFile = data.name;
+        activeFileEl.textContent = currentFile;
+        await setCode(data.code);
+        isDirty = false;
+        saveBtn.disabled = false;
+        runBtn.disabled = false;
+        renderFileList();
+    } catch (err) {
+        alert(err.message);
+    }
+}
+
+async function createFileOnServer(name) {
+    try {
+        await saveFile({ silent: true });
+        const result = await fetchJSON("/files", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, code: template })
+        });
+        await refreshFiles(result.name);
+        return result.name;
+    } catch (err) {
+        throw err;
+    }
+}
+
+function manualSave() {
+    saveFile({ force: true }).catch((err) => {
+        alert(err.message);
+    });
+}
+
+async function saveFile({ silent = false, force = false } = {}) {
+    if (!currentFile) {
+        if (!silent) {
+            alert("저장할 파일이 없습니다.");
+        }
+        return false;
+    }
+    if (!force && !isDirty) {
+        return true;
+    }
+    try {
+        const code = await getCode();
+        const result = await fetchJSON("/files", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: currentFile, code })
+        });
+        isDirty = false;
+        if (!silent) {
+            alert(`${result.name} 저장 완료.`);
+        }
+        return true;
+    } catch (err) {
+        if (!silent) {
+            alert(err.message);
+        }
+        throw err;
+    }
+}
+
+async function run() {
+    if (!currentFile) {
+        alert("실행할 파일을 선택하세요.");
+        return;
+    }
+    try {
+        await saveFile({ silent: true, force: true });
+        const result = await fetchJSON("/run", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ filename: currentFile })
+        });
+        console.log(result.message || "CMD 창을 확인하세요.");
+    } catch (err) {
+        alert(err.message);
+    }
+}
+
+function openDeleteModal() {
+    if (!currentFile) {
+        return;
+    }
+    pendingDelete = currentFile;
+    deleteText.textContent = `${pendingDelete} 파일을 삭제하시겠습니까?`;
+    deleteModal.classList.add("open");
+    deleteYesBtn.focus();
+}
+
+function closeDeleteModal() {
+    pendingDelete = "";
+    deleteModal.classList.remove("open");
+}
+
+async function confirmDelete() {
+    if (!pendingDelete) {
+        closeDeleteModal();
+        return;
+    }
+    try {
+        await fetchJSON(`/file/${encodeURIComponent(pendingDelete)}`, {
+            method: "DELETE"
+        });
+        closeDeleteModal();
+        await refreshFiles();
+    } catch (err) {
+        closeDeleteModal();
+        throw err;
+    }
+}
+
+refreshFiles();
 </script>
 </body>
 </html>
